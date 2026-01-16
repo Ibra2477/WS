@@ -3,7 +3,27 @@ from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 import plotly.express as px
+from sklearn.metrics import silhouette_score
 
+
+def find_k(embeddings):
+    # On teste de 2 à 6 clusters (ou moins si on a très peu de données)
+    max_k = min(6, len(embeddings) - 1)
+    if max_k < 2: return 1
+    
+    meilleur_k = 2
+    meilleur_score = -1
+    
+    for k in range(2, max_k + 1):
+        km = KMeans(n_clusters=k, n_init=10, random_state=42)
+        labels = km.fit_predict(embeddings)
+        # On utilise le score de Silhouette (plus il est proche de 1, mieux c'est)
+        score = silhouette_score(embeddings, labels)
+        if score > meilleur_score:
+            meilleur_score = score
+            meilleur_k = k
+            
+    return meilleur_k
 
 def analyse_universelle(resultats_json):
     data = []
@@ -21,7 +41,11 @@ def analyse_universelle(resultats_json):
     embeddings = model.encode(df['text_for_embedding'].tolist())
 
     # Clustering
-    n_clusters = min(4, len(df))
+    if len(df) > 2:
+        n_clusters = find_k(embeddings)
+    else:
+        n_clusters = 1
+        
     kmeans = KMeans(n_clusters=n_clusters, n_init=10, random_state=42)
     df['cluster'] = kmeans.fit_predict(embeddings).astype(str)
 
@@ -30,7 +54,6 @@ def analyse_universelle(resultats_json):
     coords = pca.fit_transform(embeddings)
     df['x'], df['y'] = coords[:, 0], coords[:, 1]
 
-    # --- AMÉLIORATION DE LA VISUALISATION ---
     # On essaie de trouver une colonne "nom" ou "label" pour l'affichage
     colonnes_nom = [c for c in df.columns if c.lower() in ['name', 'label', 'artiste', 'nom']]
     nom_affichage = colonnes_nom[0] if colonnes_nom else df.columns[0]
