@@ -16,21 +16,3 @@ def pipeline_complet(query, api="dbpedia", n_clusters=3):
         fig.show()
     
     return df_analysed
-
-# --- EXEMPLE D'UTILISATION RÉELLE ---
-ma_requete = """
-SELECT DISTINCT ?name ?universityName ?birthDate
-WHERE {
-  ?artist a dbo:MusicalArtist .
-  ?artist rdfs:label ?name .
-  ?artist dbo:almaMater ?university .
-  ?university rdfs:label ?universityName .
-  ?artist dbo:birthDate ?birthDate .
-  FILTER (lang(?name) = "en" AND lang(?universityName) = "en")
-  FILTER (?birthDate > "1970-01-01"^^xsd:date)
-}
-LIMIT 50
-"""
-
-# Une seule ligne pour tout faire !
-df_final = pipeline_complet(ma_requete, api="dbpedia")
