@@ -1,5 +1,7 @@
 import openai
 import os
+import spacy
+import requests
 
 llm_system_prompt = """
 You are a helpful assistant that generates SPARQL queries.
@@ -66,3 +68,56 @@ def create_query(prompt: str, config_key: str = "LIRIS") -> str:
         temperature=config["temperature"],
     )
     return response.choices[0].message.content
+
+def parse_prompt(prompt: str) -> dict[str, str]:
+    """Parse the prompt to extract the main question or task.
+    Args:
+        prompt (str): The full prompt.
+    Returns:
+        dict[str, str]: The constraints extracted from the prompt.
+    """
+    nlp = spacy.load("en_core_web_sm")
+    doc = nlp(prompt)
+
+    nouns = [chunk.text for chunk in doc.noun_chunks]
+    numbers = [ent.text for ent in doc.ents if ent.label_ == "CARDINAL"]
+
+    comparators = []
+    for token in doc:
+        if token.text in [">", "more", "over", "greater"]:
+            comparators.append(">")
+        elif token.text in ["<", "less", "under"]:
+            comparators.append("<")
+
+    return {
+        "nouns": nouns,
+        "numbers": numbers,
+        "comparators": comparators
+    }
+
+
+SPOTLIGHT_ENDPOINT = "https://api.dbpedia-spotlight.org/en/annotate"
+
+def link_entities(text: str):
+    headers = {"Accept": "application/json"}
+    params = {"text": text, "confidence": 0.5}
+
+    response = requests.get(
+        SPOTLIGHT_ENDPOINT,
+        headers=headers,
+        params=params,
+        timeout=10
+    )
+
+
+    entities = {}
+    if response.status_code == 200:
+        data = response.json()
+    #     for r in data.get("Resources", []):
+    #         surface = r["@surfaceForm"]
+    #         uri = r["@URI"].replace("http://dbpedia.org/resource/", "dbr:")
+    #         entities[surface] = uri
+
+    # return entities
+    return data
+
