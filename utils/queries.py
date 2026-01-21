@@ -8,7 +8,7 @@ PREFIX dbp: <http://dbpedia.org/property/>
     "hal": """
 PREFIX dcterms: <http://purl.org/dc/terms/>
 PREFIX foaf: <http://xmlns.com/foaf/0.1/>
-PREFIX hal: <http://data.archives-ouvertes.fr/schema/>,
+PREFIX hal: <http://data.archives-ouvertes.fr/schema/>
 """,
     "wikidata": """
 PREFIX wd:   <http://www.wikidata.org/entity/>
@@ -40,11 +40,92 @@ WHERE {
     FILTER (lang(?songName) = "en")
 }
 LIMIT 100
-}
+
 """,
         "desc": "Get songs by Michael Jackson with optional release dates and genres",
     },
+    "Drake_songs_and_writers": {
+        "req": """SELECT ?song ?songLabel (GROUP_CONCAT(DISTINCT ?writerLabel; separator=" | ") AS ?writers)
+        WHERE {
+            { <http://dbpedia.org/resource/Drake_(musician)> ^dbo:artist ?song . }
+            UNION
+            { <http://dbpedia.org/resource/Drake_(musician)> ^dbp:artist ?song . }
+
+            { ?song dbo:writer ?writer . }
+            UNION
+            { ?song dbp:writer ?writer . }
+
+            ?song rdfs:label ?songLabel .
+            ?writer rdfs:label ?writerLabel .
+
+            FILTER(lang(?songLabel) = "en")
+            FILTER(lang(?writerLabel) = "en")
+        }
+        GROUP BY ?song ?songLabel
+        LIMIT 100""",
+        "desc": "Get songs by Drake with their writers"
+    },
+    "Recent_Albums_2010_plus": {
+        "req": """SELECT DISTINCT ?album ?albumName ?Artist ?genre ?date ?title
+        WHERE {
+            ?album a dbo:Album .
+            ?album rdfs:label ?albumName .
+            ?album dbo:artist ?Artist .
+            OPTIONAL {
+                ?album dbo:genre ?genre .
+                ?album dbo:releaseDate ?date .
+                ?album dbp:title ?title .
+            }
+            FILTER (
+                lang(?albumName) = "en" &&
+                (!bound(?date) || ?date >= "2010-01-01"^^xsd:date)
+            )
+        }
+        LIMIT 100
+        """,
+        "desc": "Get recent albums released after 2010"
+    },
+    "Music_Genres": {
+        "req": """SELECT DISTINCT ?songName ?genreLabel
+        WHERE {
+            ?song a dbo:Song .
+            ?song rdfs:label ?songName .
+            OPTIONAL { ?song dbo:genre ?genre .
+            ?genre rdfs:label ?genreLabel.  }
+            FILTER(lang(?songName) = "en")
+        }
+        LIMIT 100
+        
+    """,
+        "desc": "Get genres and names of songs",
+    },
+    "Non_US_Artists_And_Songs": {
+        "req": """SELECT DISTINCT ?artist ?artistName ?song ?songName ?country
+        WHERE {
+            ?song a dbo:Song .
+            ?song rdfs:label ?songName .
+            ?song dbo:artist ?artist .
+
+            ?artist a dbo:MusicalArtist .
+            ?artist rdfs:label ?artistName .
+
+            OPTIONAL { ?artist dbo:nationality ?country . }
+            OPTIONAL { ?artist dbp:nationality ?country . }
+
+            FILTER (
+                lang(?songName) = "en" &&
+                lang(?artistName) = "en" &&
+                bound(?country) &&
+                ?country != dbr:United_States
+            )
+        }
+        LIMIT 100
+    """,
+        "desc": "Get non-US artists and their songs",
+    },
+        
 }
+
 # dict for SPARQL request templates
 # each key is a label, each value is a SPARQL query template with placeholders
 templates = {
