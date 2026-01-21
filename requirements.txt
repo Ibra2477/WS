@@ -2,5 +2,6 @@ jupyter
 pandas
 networkx
 SPARQLWrapper
-ollama
 openai
+sentence-transformers
+plotly

@@ -3,6 +3,7 @@ prefixes = {
 PREFIX dbr:  <http://dbpedia.org/resource/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dbo:  <http://dbpedia.org/ontology/>
+PREFIX dbp: <http://dbpedia.org/property/>
 """,
     "hal": """
 PREFIX dcterms: <http://purl.org/dc/terms/>
