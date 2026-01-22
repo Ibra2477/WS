@@ -46,13 +46,16 @@ def generate_class_query(prompt: str, config_key: str = "LIRIS") -> tuple[str, d
         tuple: The generated query and results.
     """
     entities = _get_entities(prompt)
+    print("Entities:", entities)
     target_classes = _get_target_classes(prompt, n_class=3, config_key=config_key)
+    print("Target classes:", target_classes)
 
     config = configs.get(config_key)
     client = _create_client(prefix=config["prefix"])
 
     for target_class in target_classes:
         props = _get_class_properties(target_class)
+        print("Props of t. class", props)
 
         user_content = class_query_prompt.format(
             question=prompt,
@@ -69,6 +72,8 @@ def generate_class_query(prompt: str, config_key: str = "LIRIS") -> tuple[str, d
         )
 
         query = _clean_sparql_response(response.choices[0].message.content)
+        print("Generated query:")
+        print(query)
 
         try:
             results = execute_query(prefixes + query)

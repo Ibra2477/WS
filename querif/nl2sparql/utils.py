@@ -132,7 +132,7 @@ def _get_target_classes(prompt: str, n_class: int = 5, config_key: str = "LIRIS"
         n_class (int): Number of classes to return.
         config_key (str): The configuration key for the LLM client.
     Returns:
-        list[str]: A list of target class URIs.
+        list[str]: A list of verified target class URIs.
     """
     config = configs.get(config_key, None)
     if config is None:
@@ -147,7 +147,64 @@ def _get_target_classes(prompt: str, n_class: int = 5, config_key: str = "LIRIS"
 
     classes_str = response.choices[0].message.content
     classes = classes_str.strip().split()
-    return classes
+
+    # Verify classes exist in DBpedia
+    verified_classes = _verify_classes_exist(classes)
+
+    if not verified_classes:
+        warnings.warn(f"No valid DBpedia classes found for prompt: {prompt}", UserWarning)
+
+    return verified_classes
+
+
+def _verify_classes_exist(classes: list[str]) -> list[str]:
+    """Verify which classes actually exist in DBpedia ontology.
+    Args:
+        classes (list[str]): List of class URIs (e.g., ["dbo:City", "dbo:Person"]).
+    Returns:
+        list[str]: List of classes that exist in DBpedia.
+    """
+    if not classes:
+        return []
+
+    values_clause = " ".join(f"({c})" for c in classes)
+
+    query = f"""
+    SELECT DISTINCT ?class WHERE {{
+        VALUES (?class) {{ {values_clause} }}
+        ?class rdf:type owl:Class .
+    }}
+    """
+
+    try:
+        results = execute_query(prefixes + query)
+        existing = [uri_to_prefixed(r["class"]["value"]) for r in results["results"]["bindings"]]
+
+        # Preserve original order
+        return [c for c in classes if c in existing]
+    except Exception as e:
+        warnings.warn(f"Failed to verify classes: {e}", RuntimeWarning)
+        return classes  # Return unverified if query fails
+
+
+def _verify_class_has_instances(class_uri: str) -> bool:
+    """Check if a class has any instances in DBpedia.
+    Args:
+        class_uri (str): The URI of the class (e.g., "dbo:City").
+    Returns:
+        bool: True if class has instances, False otherwise.
+    """
+    query = f"""
+    ASK {{
+        ?s rdf:type {class_uri} .
+    }}
+    """
+
+    try:
+        results = execute_query(prefixes + query)
+        return results.get("boolean", False)
+    except Exception:
+        return True  # Assume exists if query fails
 
 
 def _get_class_properties_ont(class_uri: str, property_type: str) -> list[str]:

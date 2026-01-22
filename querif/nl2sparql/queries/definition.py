@@ -2,7 +2,7 @@ from ..utils import _get_entities
 from ...const import prefixes
 from ...execute import execute_query
 
-def generate_definition_query(prompt: str) -> tuple[str, dict] | tuple[None, None]:
+def generate_definition_query(prompt: str, **other) -> tuple[str, dict] | tuple[None, None]:
     """Handle definition queries like 'What is X?' or 'Who is Y?'.
     Args:
         prompt (str): The user prompt.

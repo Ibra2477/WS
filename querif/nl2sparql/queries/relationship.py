@@ -3,7 +3,7 @@ from ...const import prefixes
 from ...execute import execute_query
 
 
-def generate_relationship_query(prompt: str) -> tuple[str, dict] | tuple[None, None]:
+def generate_relationship_query(prompt: str, **other) -> tuple[str, dict] | tuple[None, None]:
     """Handle relationship queries between entities.
     Args:
         prompt (str): The user prompt.

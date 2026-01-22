@@ -26,6 +26,6 @@ def generate_and_execute_query(prompt: str, config_key: str = "LIRIS") -> tuple[
 
     handler = handlers.get(query_type)
     if handler:
-        return handler(prompt, config_key)
+        return handler(prompt=prompt, config_key=config_key)
 
     return None, None
