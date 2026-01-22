@@ -9,13 +9,13 @@ import re
 
 # --- CONFIGURATION ---
 PREFERRED_LANGS = {"en", "fr"}
-# Load model once
 MODEL = SentenceTransformer("all-MiniLM-L6-v2")
 
 def clean_value(value_dict: dict) -> str | None:
     """
-    Takes a SPARQL binding object and returns a clean string.
-    Forcefully strips URLs to just the last part.
+    Cleans SPARQL values. 
+    Crucially, it handles AGGLOMERATED lists (comma-separated URIs) 
+    by splitting them first, cleaning each, and re-joining.
     """
     if not value_dict:
         return None
@@ -24,31 +24,40 @@ def clean_value(value_dict: dict) -> str | None:
     if not raw_val:
         return None
 
-    # 1. Handle URI: Keep ONLY text after the last slash
+    # Handle Agglomerated Lists (e.g. "http://.../A, http://.../B")
+    # We check if it looks like a list of links
+    if "," in raw_val and "http" in raw_val:
+        parts = raw_val.split(",")
+        cleaned_parts = []
+        for p in parts:
+            p = p.strip()
+            # Clean each part individually
+            if "/" in p:
+                p = p.rsplit("/", 1)[-1]
+            if "#" in p:
+                p = p.rsplit("#", 1)[-1]
+            p = p.replace("_", " ")
+            cleaned_parts.append(p)
+        return ", ".join(cleaned_parts)
+
+    # Handle Single URI
     if value_dict.get("type") == "uri" or raw_val.startswith("http"):
-        # split by / and take the last part
         raw_val = raw_val.rsplit("/", 1)[-1]
-        # split by # (common in RDF) and take last part
         raw_val = raw_val.rsplit("#", 1)[-1]
-        # Optional: Replace underscores with spaces for readability
         raw_val = raw_val.replace("_", " ")
 
-    # 2. Language filter (only for literals with lang tags)
+    # Handle Language Tags
     lang = value_dict.get("xml:lang")
     if lang and lang not in PREFERRED_LANGS:
         return None
 
-    # 3. Skip pure numbers (usually internal IDs)
+    # Skip pure numbers
     if raw_val.isdigit():
         return None
 
     return raw_val
 
 def row_to_clean_dict(row: dict) -> dict:
-    """
-    Converts a SPARQL row dictionary into a flat Python dict
-    with clean values only.
-    """
     clean_row = {}
     for col_name, cell_data in row.items():
         clean_val = clean_value(cell_data)
@@ -56,17 +65,13 @@ def row_to_clean_dict(row: dict) -> dict:
             clean_row[col_name] = clean_val
     return clean_row
 
-def find_best_k(embeddings, min_k=3, max_k=10):
-    """
-    Determines optimal number of clusters. 
-    Raised min_k to 3 to avoid the 'everything is one binary blob' issue.
-    """
+def find_best_k(embeddings, min_k=3, max_k=12):
+    """Finds the best number of clusters (Silhouette Score)."""
     n_rows = len(embeddings)
     if n_rows < min_k:
-        return max(1, n_rows) # Fallback for tiny data
+        return max(1, n_rows)
     
     max_k = min(max_k, n_rows - 1)
-    
     best_k = min_k
     best_score = -1.0
 
@@ -74,109 +79,103 @@ def find_best_k(embeddings, min_k=3, max_k=10):
         km = KMeans(n_clusters=k, random_state=42, n_init=10).fit(embeddings)
         labels = km.labels_
         
-        # Silhouette requires at least 2 distinct clusters
         if len(set(labels)) < 2: 
             continue
-            
-        score = silhouette_score(embeddings, labels)
         
-        # We prefer a slightly higher k if the score is similar, to break up blobs
+        score = silhouette_score(embeddings, labels)
         if score > best_score:
             best_score = score
             best_k = k
             
     return best_k
 
-def generate_cluster_name(df_cluster: pd.DataFrame) -> str:
+def generate_cluster_name(df_cluster: pd.DataFrame, top_n=2) -> str:
     """
-    Scans ALL columns in the cluster to find the most common descriptive feature.
+    Scans all columns to find the top shared attributes.
+    Splits agglomerated strings (comma-separated) to count individual tags.
     """
-    # Exclude non-descriptive columns
     ignore = {"x", "y", "cluster", "cluster_name", "hover", "label", "name", "nom", "text_for_embedding"}
     
-    # Collect all values from all relevant columns into a single list
-    all_values = []
+    all_tokens = []
+    
     for col in df_cluster.columns:
         if col in ignore:
             continue
-        # add values to list, skipping None/NaN
-        all_values.extend(df_cluster[col].dropna().astype(str).tolist())
+            
+        # Get all text values in this column
+        raw_values = df_cluster[col].dropna().astype(str).tolist()
+        
+        for val in raw_values:
+            # If the cell is "Action, Sci-Fi", split it so we count them separately
+            tokens = val.split(",") 
+            for t in tokens:
+                t = t.strip()
+                if t:
+                    all_tokens.append(t)
 
-    if not all_values:
-        return "Misc"
+    if not all_tokens:
+        return "Group " + str(len(df_cluster))
 
-    # Find the single most common value in this cluster
-    # e.g. "Science Fiction" appears 50 times
-    most_common = Counter(all_values).most_common(1)
+    # Count most frequent tokens
+    counts = Counter(all_tokens)
+    most_common = counts.most_common(top_n)
     
-    if most_common:
-        return most_common[0][0] # Return the name of the feature
-    return "Unknown"
+    # Create name like "Writer | French | Novelist"
+    name_parts = [token for token, count in most_common]
+    return " | ".join(name_parts)
 
 def semantic_cluster_dbpedia(query_results: dict) -> pd.DataFrame:
-    # 1. Extract and Clean Data
     raw_rows = query_results["results"]["bindings"]
-    cleaned_rows = [row_to_clean_dict(row) for row in raw_rows]
     
-    # Create DataFrame immediately
+    # 1. Clean Data (Fixes the URL cutting issue)
+    cleaned_rows = [row_to_clean_dict(row) for row in raw_rows]
     df = pd.DataFrame(cleaned_rows)
     
-    # 2. Create Embedding Text
-    # We combine all values (except name/label) into one string for the AI
+    # 2. Embedding Text
     def make_embedding_text(row_series):
-        # Filter out names so we cluster by properties (genre, job, etc), not alphabetical
+        # We join all properties for the AI
         values = [str(v) for k, v in row_series.items() 
-                 if k.lower() not in ["label", "name", "nom"] and pd.notna(v)]
+                  if k.lower() not in ["label", "name", "nom"] and pd.notna(v)]
         return " ".join(values)
 
     df["text_for_embedding"] = df.apply(make_embedding_text, axis=1)
     
-    # 3. Embed
-    embeddings = MODEL.encode(
-        df["text_for_embedding"].tolist(),
-        normalize_embeddings=True,
-        show_progress_bar=False
-    )
-
-    # 4. Cluster
-    # If we have enough data, force at least 3 clusters, otherwise adapt
-    k = find_best_k(embeddings, min_k=3, max_k=12)
+    # 3. Cluster
+    embeddings = MODEL.encode(df["text_for_embedding"].tolist(), show_progress_bar=False)
+    k = find_best_k(embeddings, min_k=3, max_k=15) # Force check up to 15 clusters
     km = KMeans(n_clusters=k, random_state=42, n_init=10)
     df["cluster"] = km.fit_predict(embeddings)
 
-    # 5. UMAP Reduction (Coordinates)
+    # 4. Reduce Dimensions
     reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
     coords = reducer.fit_transform(embeddings)
     df["x"] = coords[:, 0]
     df["y"] = coords[:, 1]
 
-    # 6. Name Clusters
-    # We group the dataframe by cluster ID and ask the naming function to find the pattern
+    # 5. Name Clusters (Multi-word names)
     cluster_names = {}
     for c_id in df["cluster"].unique():
         cluster_names[c_id] = generate_cluster_name(df[df["cluster"] == c_id])
-    
     df["cluster_name"] = df["cluster"].map(cluster_names)
 
-    # 7. Prepare Hover
+    # 6. Prepare Hover
     df["hover"] = df.apply(prepare_hover, axis=1)
     
     return df
 
 def prepare_hover(row):
-    """Creates clean HTML for hover."""
     lines = []
-    
-    # Try to find a title/label first
+    # Header
     title = row.get("label") or row.get("name") or row.get("nom")
     if title:
         lines.append(f"<b>{title}</b>")
     
-    # Add other properties
+    # Body
     exclude = {"x", "y", "cluster", "cluster_name", "hover", "text_for_embedding", "label", "name", "nom"}
     for k, v in row.items():
         if k not in exclude and pd.notna(v):
-            lines.append(f"{k}: {v}")
+            # v is now "Action, Comedy" correctly
+            lines.append(f"{k.capitalize()}: {v}")
             
     return "<br>".join(lines)
 
@@ -188,20 +187,15 @@ def plot_clusters(df: pd.DataFrame):
         color="cluster_name",
         hover_data={"hover": True, "x": False, "y": False, "cluster_name": False}
     )
-
     fig.update_traces(
         marker=dict(size=10, opacity=0.8),
         hovertemplate="%{customdata[0]}<extra></extra>"
     )
-    
     fig.update_layout(
         legend_title_text="Cluster",
         margin=dict(l=10, r=10, t=30, b=10)
-        # Removed 'plot_bgcolor="white"' to keep default look
     )
-    
     return fig
-
 '''
 
 
