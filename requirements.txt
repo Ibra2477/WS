@@ -5,3 +5,5 @@ SPARQLWrapper
 openai
 sentence-transformers
 plotly
+streamlit
+watchdog

@@ -2,11 +2,21 @@ import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+from plotly.graph_objs._figure import Figure
 import plotly.express as px
 from sklearn.metrics import silhouette_score
+from numpy import ndarray
 
 
-def find_k(embeddings, min_k=2, max_k=6):
+def find_k(embeddings: ndarray, min_k: int = 2, max_k: int = 6) -> int:
+    """Find the optimal number of clusters (k) using the silhouette score method.
+    Args:
+        embeddings (numpy.ndarray): The embeddings to cluster.
+        min_k (int, optional): Minimum number of clusters to try. Defaults to 2.
+        max_k (int, optional): Maximum number of clusters to try. Defaults to 6.
+    Returns:
+        int: The optimal number of clusters.
+    """
     assert min_k >= 2, "min_k must be at least 2"
     assert max_k >= min_k, "max_k must be greater than or equal to min_k"
 
@@ -24,22 +34,31 @@ def find_k(embeddings, min_k=2, max_k=6):
     return best_k
 
 
-def cluster_embeddings_KMeans(query_results: dict):
+def cluster_embeddings_KMeans(query_results: dict, min_k: int = 2, max_k: int = 6) -> pd.DataFrame:
+    """Cluster the embeddings of the query results using KMeans.
+    Args:
+        query_results (dict): The results of the SPARQL query.
+        min_k (int, optional): Minimum number of clusters to try. Defaults to 2.
+        max_k (int, optional): Maximum number of clusters to try. Defaults to 6.
+    Returns:
+        pd.DataFrame: A DataFrame with the original data, embeddings, and cluster labels.
+    """
     data = []
     for row in query_results["results"]["bindings"]:
         data.append({k: v["value"] for k, v in row.items()})
 
     df = pd.DataFrame(data)
     if df.empty:
-        return "No data", None
+        raise ValueError("The query results are empty, cannot perform clustering.")
 
     df["text_for_embedding"] = df.apply(lambda row: " ".join(row.values.astype(str)), axis=1)
 
     model = SentenceTransformer("all-MiniLM-L6-v2")
     embeddings = model.encode(df["text_for_embedding"].tolist())
+    print(type(embeddings))
     df["embedding"] = embeddings.tolist()
 
-    n_clusters = find_k(embeddings) if len(df) >= 2 else 1
+    n_clusters = find_k(embeddings, min_k=min_k, max_k=max_k) if len(df) >= 2 else 1
 
     kmeans = KMeans(n_clusters=n_clusters)
     df["cluster"] = kmeans.fit_predict(embeddings).astype(str)
@@ -49,7 +68,13 @@ def cluster_embeddings_KMeans(query_results: dict):
 VALUE_COL_NAMES = ["value", "label", "name", "nom", "artiste", "valeur", "artist", "album"]
 
 
-def plot_clusters(df: pd.DataFrame):
+def plot_clusters(df: pd.DataFrame) -> Figure:
+    """Plot the clusters of the embeddings in 2D using PCA.
+    Args:
+        df (pd.DataFrame): The DataFrame with the original data, embeddings, and cluster labels.
+    Returns:
+        plotly.graph_objs._figure.Figure: The plotly figure object.
+    """
     pca = PCA(n_components=2)
     coords = pca.fit_transform(df["embedding"].tolist())
     df["pc_1"], df["pc_2"] = coords[:, 0], coords[:, 1]
