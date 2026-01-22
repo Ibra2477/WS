@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 
+from querif.analyze.clustering import semantic_cluster_dbpedia, plot_clusters
 from querif.nl2sparql import generate_and_execute_query
 from querif.nl2sparql.utils import configs
 from dotenv import load_dotenv
@@ -45,6 +46,11 @@ for message in st.session_state.messages:
                 with st.expander("📊 Query Results", expanded=True):
                     if message["results"]:
                         st.dataframe(pd.DataFrame(message["results"]), use_container_width=True)
+                        if st.button("Analyse", key=f"analyze_{message.get('sparql', '')[:100]}"):
+                            if "raw_json" in message:
+                                df_clustered = semantic_cluster_dbpedia(message["raw_json"])
+                                fig = plot_clusters(df_clustered)
+                                st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.warning("No results found.")
             if "error" in message:
@@ -88,6 +94,7 @@ if user_input:
         message_data = {
             "role": "assistant",
             "is_structured": True,
+            "raw_json": raw_results,
         }
 
         if sparql_query:
