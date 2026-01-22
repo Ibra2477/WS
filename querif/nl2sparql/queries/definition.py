@@ -15,7 +15,15 @@ def generate_definition_query(prompt: str, **other) -> tuple[str, dict] | tuple[
     if not entities:
         return None, None
 
-    main_entity = list(entities.values())[0]
+    # Filter out question words that might be wrongly detected as entities
+    question_words = {"What", "Who", "Where", "When", "Why", "How", "Which", "Whose"}
+    filtered_entities = {k: v for k, v in entities.items() if k not in question_words}
+    
+    # Use filtered entities if available, otherwise fall back to original
+    if filtered_entities:
+        main_entity = list(filtered_entities.values())[0]
+    else:
+        main_entity = list(entities.values())[0]
 
     query = f"""
     SELECT ?label ?abstract ?type WHERE {{

@@ -18,7 +18,7 @@ if user_input:
 
     with st.chat_message("user"):
         st.markdown(user_input)
-
+    # Here we will call the backend or model to get a response
     assistant_response = "hello"
 
     st.session_state.messages.append({"role": "assistant", "content": assistant_response})

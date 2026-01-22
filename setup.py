@@ -19,7 +19,7 @@ setup(
     python_requires=">=3.8",
     entry_points={
         "console_scripts": [
-            "querif=querif.run_app:main",
+            "querif=querif.app.run_app:main",
         ],
     },
 )

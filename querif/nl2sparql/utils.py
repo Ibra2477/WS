@@ -18,7 +18,7 @@ configs = {
         "temperature": 0.4,
     },
 }
-
+#8 catégories de questions
 query_type_detection_prompt = """
 Classify the user's question into exactly ONE category:
 
@@ -168,7 +168,7 @@ def _verify_classes_exist(classes: list[str]) -> list[str]:
         return []
 
     values_clause = " ".join(f"({c})" for c in classes)
-
+    #Construit une requete sparql qui vérifie si les classes sont de type owl:Class
     query = f"""
     SELECT DISTINCT ?class WHERE {{
         VALUES (?class) {{ {values_clause} }}
@@ -206,7 +206,7 @@ def _verify_class_has_instances(class_uri: str) -> bool:
     except Exception:
         return True  # Assume exists if query fails
 
-
+# Récupère 2 types de propriétés (datatype et object) pour une classe donnée
 def _get_class_properties_ont(class_uri: str, property_type: str) -> list[str]:
     """Query DBpedia Ontology for properties of a given type associated with a class.
     Args:
@@ -373,7 +373,7 @@ def _get_common_properties(entity_uris: list[str], limit: int = 20) -> list[str]
 
     return [uri_to_prefixed(r["property"]["value"]) for r in results["results"]["bindings"]]
 
-
+# enlève les blocs maarkdown que le llm peut ajouter
 def _clean_sparql_response(response: str) -> str:
     """Clean LLM response to extract pure SPARQL query.
     Args:
