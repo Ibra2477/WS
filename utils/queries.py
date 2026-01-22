@@ -62,7 +62,7 @@ LIMIT 100
             FILTER(lang(?writerLabel) = "en")
         }
         GROUP BY ?song ?songLabel
-        LIMIT 100""",
+        LIMIT 20""",
         "desc": "Get songs by Drake with their writers"
     },
     "Recent_Albums_2010_plus": {
