@@ -9,7 +9,6 @@ from ..utils import (
 from ...execute import execute_query
 from ...const import prefixes
 
-
 fact_lookup_prompt = """
 You are a SPARQL expert for DBpedia.
 

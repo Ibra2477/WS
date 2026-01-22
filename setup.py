@@ -15,6 +15,7 @@ setup(
         "plotly",
         "streamlit",
         "watchdog",
+        "python-dotenv",
     ],
     python_requires=">=3.8",
     entry_points={

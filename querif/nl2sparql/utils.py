@@ -18,6 +18,7 @@ configs = {
         "temperature": 0.4,
     },
 }
+
 #8 catégories de questions
 query_type_detection_prompt = """
 Classify the user's question into exactly ONE category:
