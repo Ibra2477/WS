@@ -1,16 +1,14 @@
-import json
 from ..utils import (
     _check_response_is_empty,
     _create_client,
     _get_class_properties,
-    _get_entities,
     _get_target_classes,
     _clean_sparql_response,
-    _get_entity_properties,
-    configs
+    configs,
 )
 from ...const import prefixes
 from ...execute import execute_query
+from pprint import pprint
 
 aggregation_prompt = """
 You are a SPARQL expert for DBpedia.
@@ -46,29 +44,25 @@ def generate_aggregation_query(prompt: str, config_key: str = "LIRIS") -> tuple[
     Returns:
         tuple: The generated query and results.
     """
-    entities = _get_entities(prompt)
     target_classes = _get_target_classes(prompt, n_class=1, config_key=config_key)
 
     target_class = target_classes[0] if target_classes else "owl:Thing"
 
-    # Get properties from entity or class
-    if entities:
-        main_entity = list(entities.values())[0]
-        props = _get_entity_properties(main_entity, limit=20)
-        props_str = "\n".join([f"  {p['property']}" for p in props])
-    else:
-        class_props = _get_class_properties(target_class)
-        props_str = "\n".join([f"  {p}" for p in class_props["data"] + class_props["object"]])
+    class_props = _get_class_properties(target_class)
+    props_str = "\n".join([f"  {p}" for p in class_props["data"] + class_props["object"]])
 
     config = configs.get(config_key)
     client = _create_client(prefix=config["prefix"])
 
     user_content = aggregation_prompt.format(
         question=prompt,
-        entities=json.dumps(entities),
         target_class=target_class,
         properties=props_str,
     )
+
+    print("Resulting prompt:")
+    pprint(user_content)
+    print()
 
     response = client.chat.completions.create(
         model=config["model"],
