@@ -16,6 +16,7 @@ setup(
         "streamlit",
         "watchdog",
         "python-dotenv",
+        "umap-learn"
     ],
     python_requires=">=3.8",
     entry_points={

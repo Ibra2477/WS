@@ -1,6 +1,7 @@
 from ..utils import _create_client, _get_class_properties, _get_entities, _get_target_classes, _clean_sparql_response, configs
 from ...const import prefixes
 from ...execute import execute_query
+from pprint import pprint
 
 
 superlative_prompt = """
@@ -32,18 +33,24 @@ def generate_superlative_query(prompt: str, config_key: str = "LIRIS") -> tuple[
     Returns:
         tuple: The generated query and results.
     """
-    entities = _get_entities(prompt)
     target_classes = _get_target_classes(prompt, n_class=1, config_key=config_key)
+    print("Identified target classes:", target_classes, "\n")
 
     if not target_classes:
         return None, None
 
     target_class = target_classes[0]
-    props = _get_class_properties(target_class)
-    all_props = props["data"][:10] + props["object"][:10]
+    all_props = _get_class_properties(target_class)
+    print("Available properties for class:")
+    pprint(all_props)
+    print()
+
 
     config = configs.get(config_key)
     client = _create_client(prefix=config["prefix"])
+
+    print("Resulting prompt:")
+    pprint(superlative_prompt.format(question=prompt, target_class=target_class, properties="\n".join(all_props)))
 
     response = client.chat.completions.create(
         model=config["model"],
@@ -58,5 +65,10 @@ def generate_superlative_query(prompt: str, config_key: str = "LIRIS") -> tuple[
     )
 
     query = _clean_sparql_response(response.choices[0].message.content)
+
+    print("Generated SPARQL query:")
+    pprint(query)
+    print()
+
     results = execute_query(prefixes + query)
     return query, results

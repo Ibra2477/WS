@@ -45,12 +45,12 @@ for message in st.session_state.messages:
             if "results" in message:
                 with st.expander("📊 Query Results", expanded=True):
                     if message["results"]:
-                        st.dataframe(pd.DataFrame(message["results"]), use_container_width=True)
+                        st.dataframe(pd.DataFrame(message["results"]), width='stretch')
                         if st.button("Analyse", key=f"analyze_{message.get('sparql', '')[:100]}"):
                             if "raw_json" in message:
                                 df_clustered = semantic_cluster_dbpedia(message["raw_json"])
                                 fig = plot_clusters(df_clustered)
-                                st.plotly_chart(fig, use_container_width=True)
+                                st.plotly_chart(fig, width='stretch')
                     else:
                         st.warning("No results found.")
             if "error" in message:
@@ -114,7 +114,7 @@ if user_input:
 
                     message_data["results"] = results_data
                     with st.expander("📊 Query Results", expanded=True):
-                        st.dataframe(pd.DataFrame(results_data), use_container_width=True)
+                        st.dataframe(pd.DataFrame(results_data), width='stretch')
                 else:
                     message_data["results"] = []
                     with st.expander("📊 Query Results", expanded=True):
