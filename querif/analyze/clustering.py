@@ -11,33 +11,18 @@ import warnings
 import re
 import json
 from numpy import ndarray
+from querif.nl2sparql.utils import _create_client
 
 # --- CONFIGURATION ---
 PREFERRED_LANGS = {"en", "fr"}
 MODEL = SentenceTransformer("all-MiniLM-L6-v2")
 
-def _create_liris_client():
-    base_url = os.getenv("LIRIS_API")
-    api_key = os.getenv("LIRIS_API_KEY")
-    if not base_url or not api_key:
-        raise ValueError("LIRIS_API and LIRIS_API_KEY must be set.")
-    return openai.OpenAI(base_url=base_url, api_key=api_key)
-
-import json
-import re
-import warnings
-import pandas as pd
-
 
 def generate_cluster_name_llm(
     df: pd.DataFrame,
-    max_words: int = 2,
+    max_words: int = 3,  # augmenter
+    batch_size: int = 5  # limiter le nombre de clusters par appel
 ) -> dict[int, str] | None:
-    """
-    Generate names for ALL clusters in ONE LLM call.
-    Returns {cluster_id: name} or None on failure.
-    """
-
     clusters_payload: dict[str, str] = {}
 
     for c_id in sorted(df["cluster"].unique()):
@@ -48,80 +33,73 @@ def generate_cluster_name_llm(
             .tolist()
         )
         if texts:
-            # small, high-signal sample only
             clusters_payload[str(c_id)] = "\n".join(texts[:20])
 
     if not clusters_payload:
         return None
 
-    system_prompt = (
-        "You are naming semantic clusters.\n"
-        "You will receive multiple clusters of text in JSON.\n\n"
-        "Rules:\n"
-        "- Give EACH cluster a SHORT name (1–2 words)\n"
-        "- Names must be DESCRIPTIVE\n"
-        "- Names must be DISTINCT from each other\n"
-        "- NO punctuation\n"
-        "- NO explanations\n"
-        "- You MUST return EXACTLY the same cluster_id keys as provided\n"
-        "- Do NOT add, remove, or rename keys\n"
-        "- Output MUST be valid JSON\n"
-        '- Format: {"cluster_id": "Name"}\n'
-    )
+    final: dict[int, str] = {}
 
-    user_prompt = (
-        "Clusters (JSON):\n"
-        + json.dumps(clusters_payload, ensure_ascii=False, indent=2)
-    )
+    # batch processing
+    cluster_items = list(clusters_payload.items())
+    for i in range(0, len(cluster_items), batch_size):
+        batch = dict(cluster_items[i:i+batch_size])
 
-    try:
-        client = _create_liris_client()
-        response = client.chat.completions.create(
-            model="llama3:70b",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.3,
+        system_prompt = (
+            "You are naming semantic clusters.\n"
+            "You will receive multiple clusters of text in JSON.\n\n"
+            "Rules:\n"
+            "- Give EACH cluster a SHORT name (1–3 words)\n"
+            "- Names must be DESCRIPTIVE\n"
+            "- Names must be DISTINCT from each other\n"
+            "- NO punctuation\n"
+            "- NO explanations\n"
+            "- You MUST return EXACTLY the same cluster_id keys as provided\n"
+            "- Do NOT add, remove, or rename keys\n"
+            "- Output MUST be valid JSON\n"
+            '- Format: {"cluster_id": "Name"}\n'
         )
 
-        raw = response.choices[0].message.content.strip()
+        user_prompt = "Clusters (JSON):\n" + json.dumps(batch, ensure_ascii=False, indent=2)
 
-        # Remove markdown fences if present
-        raw = raw.replace("```json", "").replace("```", "").strip()
+        try:
+            client = _create_client("DEEPSEEK")
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.3,
+            )
 
-        names = json.loads(raw)
+            raw = response.choices[0].message.content.strip()
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            raw = re.sub(r"[^\x20-\x7EÀ-ÿ{}\":,]", "", raw)  # nettoyage des caractères invalides
+            names = json.loads(raw)
 
-        # ---- coverage validation ----
-        expected_ids = {int(c) for c in df["cluster"].unique()}
-        returned_ids = {int(k) for k in names.keys()}
+            # ---- validation et nettoyage ----
+            used: set[str] = set()
+            for k, v in names.items():
+                if not isinstance(v, str):
+                    v = f"Cluster {k}"
+                v = v.strip()
+                if len(v.split()) > max_words:
+                    v = " ".join(v.split()[:max_words])
+                if v in used:
+                    v += f"_{k}"
+                v = re.sub(r"[^\wÀ-ÿ ]", "", v)
+                final[int(k)] = v
+                used.add(v)
 
-        if expected_ids != returned_ids:
-            return None
+        except Exception as e:
+            warnings.warn(f"DEEPSEEK batch cluster naming failed: {e}")
+            # fallback pour ce batch
+            for k in batch.keys():
+                final[int(k)] = f"Cluster {k}"
 
-        # ---- value validation ----
-        final: dict[int, str] = {}
-        used: set[str] = set()
+    return final
 
-        for k, v in names.items():
-            if not isinstance(v, str):
-                return None
-            if len(v.split()) > max_words:
-                return None
-            if v in used:
-                return None
-            if not re.match(r"^[\wÀ-ÿ ]+$", v):
-                return None
-
-            final[int(k)] = v.strip()
-            used.add(v)
-
-        return final
-
-    except Exception as e:
-        warnings.warn(f"LIRIS batch cluster naming failed: {e}")
-        return None
-    
 def generate_cluster_name_safe(df: pd.DataFrame) -> dict[int, str]:
     llm_names = generate_cluster_name_llm(df)
 
