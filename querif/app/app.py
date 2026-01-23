@@ -28,7 +28,7 @@ if "stop_execution" not in st.session_state:
     st.session_state.stop_execution = False
 
 # Display previous messages
-for message in st.session_state.messages:
+for msg_idx, message in enumerate(st.session_state.messages):
     with st.chat_message(message["role"]):
         if message["role"] == "user":
             st.markdown(message.get("content", ""))
@@ -46,7 +46,7 @@ for message in st.session_state.messages:
                 with st.expander("📊 Query Results", expanded=True):
                     if message["results"]:
                         st.dataframe(pd.DataFrame(message["results"]), width='stretch')
-                        if st.button("Analyse", key=f"analyze_{message.get('sparql', '')[:100]}"):
+                        if st.button("Analyse", key=f"analyze_{msg_idx}"):
                             if "raw_json" in message:
                                 df_clustered = semantic_cluster_dbpedia(message["raw_json"])
                                 fig = plot_clusters(df_clustered)
