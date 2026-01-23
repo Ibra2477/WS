@@ -26,60 +26,42 @@ class RDFGraphBuilder:
     
     def parse_sparql_query(self, sparql_query: str) -> Dict:
         """
-        Analyse une requête SPARQL pour extraire les entités, classes et propriétés
-        
-        Args:
-            sparql_query: Requête SPARQL à analyser
-            
-        Returns:
-            Dict contenant les entités, classes et relations extraites
+        Analyse une requête SPARQL pour extraire les entités, classes et patrons de triples.
+        La sortie est structurée pour être réutilisable lors de la construction du graphe
+        à partir des bindings réels (généralisation).
         """
         result = {
             'main_entity': None,
-            'classes': [],
-            'properties': [],
+            'classes': [],          # [{variable: ?x, class: dbo:Song}]
+            'triples': [],          # patrons de triples (sujet, prédicat, objet)
             'filters': []
         }
-        
-        # Extraire les clauses WHERE
+
         where_match = re.search(r'WHERE\s*\{(.*?)\}', sparql_query, re.DOTALL | re.IGNORECASE)
         if not where_match:
             return result
-        
+
         where_clause = where_match.group(1)
-        
-        # Extraire les triples (sujet prédicat objet)
-        triple_pattern = r'\??\w+\s+([a-zA-Z_:]+)\s+(\??\w+|<[^>]+>|"[^"]*")'
-        triples = re.findall(triple_pattern, where_clause)
-        
-        # Extraire rdf:type pour identifier les classes
-        type_pattern = r'(\?\w+)\s+(rdf:type|a)\s+([a-zA-Z_:]+)'
-        type_matches = re.findall(type_pattern, where_clause, re.IGNORECASE)
-        
-        for var, _, class_type in type_matches:
-            result['classes'].append({
-                'variable': var,
-                'class': class_type
-            })
-        
-        # Extraire les propriétés
-        property_pattern = r'(\?\w+|<[^>]+>|[a-zA-Z_:]+)\s+([a-zA-Z_:]+)\s+(\?\w+|<[^>]+>|"[^"]*")'
-        property_matches = re.findall(property_pattern, where_clause)
-        
-        for subj, pred, obj in property_matches:
-            if pred not in ['rdf:type', 'a']:
-                result['properties'].append({
-                    'subject': subj,
-                    'predicate': pred,
-                    'object': obj
-                })
-        
-        # Identifier l'entité principale (resource nommée)
+
+        # Capturer tous les triples (incluant rdf:type)
+        triple_pattern = r'(\?\w+|<[^>]+>|[a-zA-Z_][\w-]*:[\w-]+)\s+(a|rdf:type|[a-zA-Z_][\w-]*:[\w-]+)\s+(\?\w+|<[^>]+>|"[^"]*"|[a-zA-Z_][\w-]*:[\w-]+)'
+        for subj, pred, obj in re.findall(triple_pattern, where_clause, flags=re.IGNORECASE):
+            subj = subj.strip()
+            pred = pred.strip()
+            obj = obj.strip()
+            norm_pred = 'rdf:type' if pred in ['a', 'rdf:type'] else pred
+            result['triples'].append({'subject': subj, 'predicate': norm_pred, 'object': obj})
+
+            # Si rdf:type, mémoriser la classe principale pour la variable
+            if norm_pred == 'rdf:type':
+                result['classes'].append({'variable': subj, 'class': obj})
+
+        # Identifier l'entité principale (première ressource nommée rencontrée)
         resource_pattern = r'(dbr:[A-Za-z_0-9]+)'
         resources = re.findall(resource_pattern, sparql_query)
         if resources:
             result['main_entity'] = resources[0]
-        
+
         return result
     
     def build_from_sparql(self, sparql_query: str, natural_language: str = ""):
@@ -136,124 +118,114 @@ class RDFGraphBuilder:
     
     def build_from_results(self, sparql_query: str, results: dict, max_results: int = 20):
         """
-        Construit le graphe RDF à partir des résultats réels d'une requête SPARQL
-        
-        Args:
-            sparql_query: Requête SPARQL originale
-            results: Résultats de l'exécution de la requête (format SPARQLWrapper JSON)
-            max_results: Nombre maximum de résultats à inclure dans le graphe
+        Construit le graphe RDF de manière générique à partir des résultats SPARQL.
+        Exploite directement les patrons de triples de la requête pour relier les
+        valeurs instanciées, quel que soit le domaine (capitales, chansons, personnes).
         """
         if not results or 'results' not in results or 'bindings' not in results['results']:
             print("Aucun résultat à traiter")
             return
-        
+
         bindings = results['results']['bindings'][:max_results]
-        
-        # Extraire l'entité principale et la classe de la requête
         parsed = self.parse_sparql_query(sparql_query)
-        main_class = None
+
+        var_classes = {c['variable']: c['class'] for c in parsed.get('classes', [])}
+
         main_entity = parsed.get('main_entity')
-        
-        # Détecter l'entité principale depuis l'URI complète si présente
-        artist_match = re.search(r'<http://dbpedia\.org/resource/([^>]+)>', sparql_query)
-        if artist_match and not main_entity:
-            main_entity = f"dbr:{artist_match.group(1)}"
-        
-        if parsed['classes']:
-            main_class = parsed['classes'][0]['class']
-        
-        # Ajouter l'entité principale (ex: Drake)
         if main_entity:
-            entity_name = main_entity.split(':')[-1].replace('_', ' ').replace('(musician)', '').strip()
-            self.add_entity(main_entity, 'resource', entity_name, main_entity)
-        
-        # Ajouter la classe principale
-        if main_class:
-            class_name = main_class.split(':')[-1]
-            self.add_entity(main_class, 'class', class_name)
-        
-        # Traiter chaque résultat
+            label = main_entity.split(':')[-1].replace('_', ' ')
+            self.add_entity(main_entity, 'resource', label, prefixed_to_uri(main_entity))
+        for _, cls in var_classes.items():
+            class_label = cls.split(':')[-1]
+            self.add_entity(cls, 'class', class_label, prefixed_to_uri(cls))
+
+        def resolve_token(token: str, binding: Dict, idx: int) -> Optional[str]:
+            """Résout un token (var, URI, prefixed, literal) en identifiant de nœud."""
+            if token.startswith('?'):
+                var = token[1:]
+                if var not in binding:
+                    return None
+                val = binding[var]
+                vtype, v = val.get('type'), val.get('value')
+                if vtype == 'uri':
+                    rid = uri_to_prefixed(v)
+                    if rid == v:
+                        rid = v.split('/')[-1]
+                    label = rid.split(':')[-1].replace('_', ' ')
+                    self.add_entity(rid, 'resource', label, v)
+                    if token in var_classes:
+                        self.add_property(rid, 'rdf:type', var_classes[token])
+                    return rid
+                if vtype == 'literal':
+                    lid = f"literal_{idx}_{var}"
+                    display = v[:80] + "..." if len(v) > 80 else v
+                    self.add_entity(lid, 'literal', display)
+                    return lid
+                return None
+
+            if token.startswith('<') and token.endswith('>'):
+                uri = token.strip('<>')
+                rid = uri_to_prefixed(uri)
+                if rid == uri:
+                    rid = uri.split('/')[-1]
+                label = rid.split(':')[-1].replace('_', ' ')
+                self.add_entity(rid, 'resource', label, uri)
+                return rid
+
+            label = token.split(':')[-1].replace('_', ' ')
+            self.add_entity(token, 'resource', label, prefixed_to_uri(token))
+            return token
+
         for idx, binding in enumerate(bindings):
-            result_id = f"result_{idx}"
-            
-            # Pour chaque variable dans les résultats
-            for var_name, var_value in binding.items():
-                value_type = var_value.get('type')
-                value = var_value.get('value')
-                
-                if not value:
+            for triple in parsed.get('triples', []):
+                subj_id = resolve_token(triple['subject'].strip(), binding, idx)
+                obj_id = resolve_token(triple['object'].strip(), binding, idx)
+                predicate = triple['predicate'].strip()
+
+                if not subj_id or not obj_id:
                     continue
-                
-                # Créer un ID unique pour cette ressource
-                if value_type == 'uri':
-                    # Convertir l'URI en format préfixé
-                    resource_id = uri_to_prefixed(value)
-                    if resource_id == value:  # Si pas de préfixe trouvé
-                        resource_id = value.split('/')[-1]
-                    
-                    # Extraire un label lisible
-                    label = resource_id.split(':')[-1].replace('_', ' ')
-                    
-                    # Déterminer le type selon la variable
-                    if var_name in ['album', 'movie', 'film', 'book', 'song']:
-                        node_type = 'resource'
-                        # Ajouter l'instance
-                        self.add_entity(resource_id, node_type, label, value)
-                        
-                        # Lier à la classe
-                        if main_class:
-                            self.add_property(resource_id, 'rdf:type', main_class)
-                        
-                        # Lier à l'entité principale
-                        if main_entity:
-                            # Détecter le type de relation
-                            if 'artist' in sparql_query.lower():
-                                self.add_property(resource_id, 'dbo:artist', main_entity)
-                            elif 'director' in sparql_query.lower():
-                                self.add_property(resource_id, 'dbo:director', main_entity)
-                            elif 'author' in sparql_query.lower():
-                                self.add_property(resource_id, 'dbo:author', main_entity)
-                    else:
-                        self.add_entity(resource_id, 'resource', label, value)
-                
-                elif value_type == 'literal':
-                    # C'est un littéral (titre, label, etc.)
-                    literal_id = f"literal_{idx}_{var_name}"
-                    
-                    # Tronquer si trop long
-                    display_value = value[:50] + "..." if len(value) > 50 else value
-                    
-                    self.add_entity(literal_id, 'literal', display_value)
-                    
-                    # Trouver la ressource associée et créer le lien
-                    # La ressource est souvent dans la variable précédente
-                    if 'album' in binding:
-                        album_uri = binding['album']['value']
-                        album_id = uri_to_prefixed(album_uri)
-                        if album_id == album_uri:
-                            album_id = album_uri.split('/')[-1]
-                        
-                        # Déterminer la propriété (title, label, name)
-                        if var_name in ['title', 'label', 'name']:
-                            self.add_property(album_id, f'rdfs:{var_name}', literal_id)
-                    elif 'song' in binding:
-                        song_uri = binding['song']['value']
-                        song_id = uri_to_prefixed(song_uri)
-                        if song_id == song_uri:
-                            song_id = song_uri.split('/')[-1]
-                        
-                        if var_name in ['title', 'label', 'name']:
-                            self.add_property(song_id, f'rdfs:{var_name}', literal_id)
-                    elif 'movie' in binding or 'film' in binding:
-                        resource_key = 'movie' if 'movie' in binding else 'film'
-                        resource_uri = binding[resource_key]['value']
-                        resource_id = uri_to_prefixed(resource_uri)
-                        if resource_id == resource_uri:
-                            resource_id = resource_uri.split('/')[-1]
-                        
-                        if var_name in ['title', 'label', 'name']:
-                            self.add_property(resource_id, f'rdfs:{var_name}', literal_id)
-    
+
+                if predicate == 'rdf:type' and obj_id.startswith('literal_'):
+                    continue
+
+                self.add_property(subj_id, predicate, obj_id)
+
+        # Fallback : aucune arête créée
+        if not self.properties and bindings:
+            # On crée au moins des liens depuis l'entité principale (ou le premier URI) vers les autres
+            binding = bindings[0]
+
+            # Déterminer un noeud racine si main_entity absent
+            root = main_entity
+            if not root:
+                for var_value in binding.values():
+                    if var_value.get('type') == 'uri':
+                        candidate = uri_to_prefixed(var_value['value'])
+                        root = candidate
+                        self.add_entity(candidate, 'resource', candidate.split(':')[-1].replace('_', ' '), var_value['value'])
+                        break
+
+            for var_name, var_value in binding.items():
+                if var_value.get('type') == 'literal':
+                    lid = f"literal_0_{var_name}"
+                    display = var_value['value'][:80]
+                    self.add_entity(lid, 'literal', display)
+                    if root:
+                        self.add_property(root, f'rdfs:{var_name}', lid)
+                elif var_value.get('type') == 'uri':
+                    rid = uri_to_prefixed(var_value['value'])
+                    label = rid.split(':')[-1].replace('_', ' ')
+                    self.add_entity(rid, 'resource', label, var_value['value'])
+                    if root and rid != root:
+                        self.add_property(root, f'linkedTo:{var_name}', rid)
+
+            # Si toujours rien, relier tout au root
+            if root:
+                for entity_id in list(self.entities.keys()):
+                    if entity_id == root:
+                        continue
+                    self.add_property(root, 'relatedTo', entity_id)
+
     def add_entity(self, entity_id: str, entity_type: str, label: str, uri: Optional[str] = None):
         """
         Ajoute une entité au graphe
@@ -423,14 +395,32 @@ class RDFGraphBuilder:
         Args:
             filename: Nom du fichier de sortie (.ttl)
         """
+        def fmt_resource(node_id: str) -> str:
+            data = self.entities.get(node_id, {})
+            uri = data.get('uri')
+            if uri and uri.startswith('http'):
+                return f"<{uri}>"
+            return node_id
+
+        def fmt_predicate(pred: str) -> str:
+            # Si prédicat est une URI complète, l'encadrer, sinon laisser le préfixe
+            if pred.startswith('http://') or pred.startswith('https://'):
+                return f"<{pred}>"
+            return pred
+
+        def fmt_object(obj_id: str) -> str:
+            if obj_id.startswith('literal_'):
+                label = self.entities.get(obj_id, {}).get('label', obj_id)
+                safe = label.replace('"', '\"')
+                return f'"{safe}"'
+            return fmt_resource(obj_id)
+
         with open(filename, 'w', encoding='utf-8') as f:
-            # Écrire les préfixes
             for prefix, uri in namespaces.items():
                 f.write(f"@prefix {prefix}: <{uri}> .\n")
             f.write("\n")
-            
-            # Écrire les triples
+
             for subj, pred, obj in self.properties:
-                f.write(f"{subj} {pred} {obj} .\n")
-        
+                f.write(f"{fmt_resource(subj)} {fmt_predicate(pred)} {fmt_object(obj)} .\n")
+
         print(f"✓ Graphe exporté en Turtle dans {filename}")
