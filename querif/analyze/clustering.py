@@ -5,11 +5,135 @@ import plotly.express as px
 from sklearn.metrics import silhouette_score
 from collections import Counter
 import umap.umap_ as umap
+import os
+import openai
+import warnings
 import re
+import json
 
 # --- CONFIGURATION ---
 PREFERRED_LANGS = {"en", "fr"}
 MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+
+def _create_liris_client():
+    base_url = os.getenv("LIRIS_API")
+    api_key = os.getenv("LIRIS_API_KEY")
+    if not base_url or not api_key:
+        raise ValueError("LIRIS_API and LIRIS_API_KEY must be set.")
+    return openai.OpenAI(base_url=base_url, api_key=api_key)
+
+import json
+import re
+import warnings
+import pandas as pd
+
+
+def generate_cluster_name_llm(
+    df: pd.DataFrame,
+    max_words: int = 2,
+) -> dict[int, str] | None:
+    """
+    Generate names for ALL clusters in ONE LLM call.
+    Returns {cluster_id: name} or None on failure.
+    """
+
+    clusters_payload: dict[str, str] = {}
+
+    for c_id in sorted(df["cluster"].unique()):
+        texts = (
+            df[df["cluster"] == c_id]["text_for_embedding"]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+        if texts:
+            # small, high-signal sample only
+            clusters_payload[str(c_id)] = "\n".join(texts[:20])
+
+    if not clusters_payload:
+        return None
+
+    system_prompt = (
+        "You are naming semantic clusters.\n"
+        "You will receive multiple clusters of text in JSON.\n\n"
+        "Rules:\n"
+        "- Give EACH cluster a SHORT name (1–2 words)\n"
+        "- Names must be DESCRIPTIVE\n"
+        "- Names must be DISTINCT from each other\n"
+        "- NO punctuation\n"
+        "- NO explanations\n"
+        "- You MUST return EXACTLY the same cluster_id keys as provided\n"
+        "- Do NOT add, remove, or rename keys\n"
+        "- Output MUST be valid JSON\n"
+        '- Format: {"cluster_id": "Name"}\n'
+    )
+
+    user_prompt = (
+        "Clusters (JSON):\n"
+        + json.dumps(clusters_payload, ensure_ascii=False, indent=2)
+    )
+
+    try:
+        client = _create_liris_client()
+        response = client.chat.completions.create(
+            model="llama3:70b",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.3,
+        )
+
+        raw = response.choices[0].message.content.strip()
+
+        # Remove markdown fences if present
+        raw = raw.replace("```json", "").replace("```", "").strip()
+
+        names = json.loads(raw)
+
+        # ---- coverage validation ----
+        expected_ids = {int(c) for c in df["cluster"].unique()}
+        returned_ids = {int(k) for k in names.keys()}
+
+        if expected_ids != returned_ids:
+            return None
+
+        # ---- value validation ----
+        final: dict[int, str] = {}
+        used: set[str] = set()
+
+        for k, v in names.items():
+            if not isinstance(v, str):
+                return None
+            if len(v.split()) > max_words:
+                return None
+            if v in used:
+                return None
+            if not re.match(r"^[\wÀ-ÿ ]+$", v):
+                return None
+
+            final[int(k)] = v.strip()
+            used.add(v)
+
+        return final
+
+    except Exception as e:
+        warnings.warn(f"LIRIS batch cluster naming failed: {e}")
+        return None
+    
+def generate_cluster_name_safe(df: pd.DataFrame) -> dict[int, str]:
+    llm_names = generate_cluster_name_llm(df)
+
+    if llm_names:
+        print("✅ LLM cluster naming used")
+        return llm_names
+
+    print("⚠️ LLM naming failed → fallback heuristic used")
+    return {
+        c_id: generate_cluster_name(df[df["cluster"] == c_id])
+        for c_id in df["cluster"].unique()
+    }
+
 
 def clean_value(value_dict: dict) -> str | None:
     """
@@ -152,10 +276,9 @@ def semantic_cluster_dbpedia(query_results: dict) -> pd.DataFrame:
     df["x"] = coords[:, 0]
     df["y"] = coords[:, 1]
 
-    # 5. Name Clusters (Multi-word names)
-    cluster_names = {}
-    for c_id in df["cluster"].unique():
-        cluster_names[c_id] = generate_cluster_name(df[df["cluster"] == c_id])
+
+    # 5. Name Clusters (LLM first, fallback if needed)
+    cluster_names = generate_cluster_name_safe(df)
     df["cluster_name"] = df["cluster"].map(cluster_names)
 
     # 6. Prepare Hover
