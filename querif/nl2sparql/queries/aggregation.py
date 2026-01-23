@@ -28,8 +28,8 @@ Question: {question}
 
 Target class: {target_class}
 
-Available numeric properties:
-{numeric_properties}
+Available properties:
+{properties}
 
 Generate the SPARQL query:
 """
