@@ -1,5 +1,5 @@
 """
-RDF Graph Builder - Construit un graphe RDF Ã  partir d'une requÃªte SPARQL
+RDF Graph Builder - Construit un graphe RDF à partir d'une requête SPARQL
 """
 import re
 import networkx as nx
@@ -11,30 +11,30 @@ from .const.prefixes import namespaces, uri_to_prefixed, prefixed_to_uri
 
 
 class RDFGraphBuilder:
-    """Construit et visualise un graphe RDF Ã  partir d'une requÃªte SPARQL"""
+    """Construit et visualise un graphe RDF à partir d'une requête SPARQL"""
     
     def __init__(self):
         self.graph = nx.DiGraph()
         self.entities = {}  # Mappe entity_id -> {type, label, uri}
-        self.properties = []  # Liste des propriÃ©tÃ©s (sujet, prÃ©dicat, objet)
+        self.properties = []  # Liste des propriétés (sujet, prédicat, objet)
         
-        # Couleurs pour diffÃ©rents types de nÅ“uds
+        # Couleurs pour différents types de nœuds
         self.node_colors = {
-            'resource': '#FF6B6B',  # Rouge pour les ressources/entitÃ©s
+            'resource': '#FF6B6B',  # Rouge pour les ressources/entités
             'class': '#4ECDC4',     # Cyan pour les classes
-            'literal': '#98D8C8',   # Vert clair pour les littÃ©raux
-            'property': '#FFA07A',  # Orange pour les propriÃ©tÃ©s
+            'literal': '#98D8C8',   # Vert clair pour les littéraux
+            'property': '#FFA07A',  # Orange pour les propriétés
         }
     
     def parse_sparql_query(self, sparql_query: str) -> Dict:
         """
-        Analyse une requÃªte SPARQL pour extraire les entitÃ©s, classes et propriÃ©tÃ©s
+        Analyse une requête SPARQL pour extraire les entités, classes et propriétés
         
         Args:
-            sparql_query: RequÃªte SPARQL Ã  analyser
+            sparql_query: Requête SPARQL à analyser
             
         Returns:
-            Dict contenant les entitÃ©s, classes et relations extraites
+            Dict contenant les entités, classes et relations extraites
         """
         result = {
             'main_entity': None,
@@ -50,7 +50,7 @@ class RDFGraphBuilder:
         
         where_clause = where_match.group(1)
         
-        # Extraire les triples (sujet prÃ©dicat objet)
+        # Extraire les triples (sujet prédicat objet)
         triple_pattern = r'\??\w+\s+([a-zA-Z_:]+)\s+(\??\w+|<[^>]+>|"[^"]*")'
         triples = re.findall(triple_pattern, where_clause)
         
@@ -64,7 +64,7 @@ class RDFGraphBuilder:
                 'class': class_type
             })
         
-        # Extraire les propriÃ©tÃ©s
+        # Extraire les propriétés
         property_pattern = r'(\?\w+|<[^>]+>|[a-zA-Z_:]+)\s+([a-zA-Z_:]+)\s+(\?\w+|<[^>]+>|"[^"]*")'
         property_matches = re.findall(property_pattern, where_clause)
         
@@ -76,7 +76,7 @@ class RDFGraphBuilder:
                     'object': obj
                 })
         
-        # Identifier l'entitÃ© principale (resource nommÃ©e)
+        # Identifier l'entité principale (resource nommée)
         resource_pattern = r'(dbr:[A-Za-z_0-9]+)'
         resources = re.findall(resource_pattern, sparql_query)
         if resources:
@@ -86,39 +86,39 @@ class RDFGraphBuilder:
     
     def build_from_sparql(self, sparql_query: str, natural_language: str = ""):
         """
-        Construit le graphe RDF Ã  partir d'une requÃªte SPARQL
+        Construit le graphe RDF à partir d'une requête SPARQL
         
         Args:
-            sparql_query: RequÃªte SPARQL
+            sparql_query: Requête SPARQL
             natural_language: Question en langage naturel (optionnel)
         """
         parsed = self.parse_sparql_query(sparql_query)
         
-        # Ajouter les classes comme nÅ“uds
+        # Ajouter les classes comme nœuds
         for class_info in parsed['classes']:
             var = class_info['variable']
             class_type = class_info['class']
             
-            # Ajouter la classe comme nÅ“ud de type
+            # Ajouter la classe comme nœud de type
             self.add_entity(class_type, 'class', class_type.split(':')[-1])
             
             # Ajouter la variable comme instance de cette classe
             self.add_entity(var, 'resource', var)
             self.add_property(var, 'rdf:type', class_type)
         
-        # Ajouter l'entitÃ© principale
+        # Ajouter l'entité principale
         if parsed['main_entity']:
             entity = parsed['main_entity']
             entity_name = entity.split(':')[-1].replace('_', ' ')
             self.add_entity(entity, 'resource', entity_name)
         
-        # Ajouter les propriÃ©tÃ©s et relations
+        # Ajouter les propriétés et relations
         for prop in parsed['properties']:
             subj = prop['subject']
             pred = prop['predicate']
             obj = prop['object']
             
-            # DÃ©terminer le type de l'objet
+            # Déterminer le type de l'objet
             if obj.startswith('?'):
                 obj_type = 'resource'
             elif obj.startswith('"'):
@@ -127,36 +127,36 @@ class RDFGraphBuilder:
             else:
                 obj_type = 'resource'
             
-            # Ajouter les entitÃ©s si elles n'existent pas
+            # Ajouter les entités si elles n'existent pas
             if subj not in self.entities:
                 self.add_entity(subj, 'resource', subj)
             if obj not in self.entities:
                 self.add_entity(obj, obj_type, obj)
             
-            # Ajouter la propriÃ©tÃ©
+            # Ajouter la propriété
             self.add_property(subj, pred, obj)
     
     def build_from_results(self, sparql_query: str, results: dict, max_results: int = 20):
         """
-        Construit le graphe RDF Ã  partir des rÃ©sultats rÃ©els d'une requÃªte SPARQL
+        Construit le graphe RDF à partir des résultats réels d'une requête SPARQL
         
         Args:
-            sparql_query: RequÃªte SPARQL originale
-            results: RÃ©sultats de l'exÃ©cution de la requÃªte (format SPARQLWrapper JSON)
-            max_results: Nombre maximum de rÃ©sultats Ã  inclure dans le graphe
+            sparql_query: Requête SPARQL originale
+            results: Résultats de l'exécution de la requête (format SPARQLWrapper JSON)
+            max_results: Nombre maximum de résultats à inclure dans le graphe
         """
         if not results or 'results' not in results or 'bindings' not in results['results']:
-            print("Aucun rÃ©sultat Ã  traiter")
+            print("Aucun résultat à traiter")
             return
         
         bindings = results['results']['bindings'][:max_results]
         
-        # Extraire l'entitÃ© principale et la classe de la requÃªte
+        # Extraire l'entité principale et la classe de la requête
         parsed = self.parse_sparql_query(sparql_query)
         main_class = None
         main_entity = parsed.get('main_entity')
         
-        # DÃ©tecter l'entitÃ© principale depuis l'URI complÃ¨te si prÃ©sente
+        # Détecter l'entité principale depuis l'URI complète si présente
         artist_match = re.search(r'<http://dbpedia\.org/resource/([^>]+)>', sparql_query)
         if artist_match and not main_entity:
             main_entity = f"dbr:{artist_match.group(1)}"
@@ -164,7 +164,7 @@ class RDFGraphBuilder:
         if parsed['classes']:
             main_class = parsed['classes'][0]['class']
         
-        # Ajouter l'entitÃ© principale (ex: Drake)
+        # Ajouter l'entité principale (ex: Drake)
         if main_entity:
             entity_name = main_entity.split(':')[-1].replace('_', ' ').replace('(musician)', '').strip()
             self.add_entity(main_entity, 'resource', entity_name, main_entity)
@@ -174,11 +174,11 @@ class RDFGraphBuilder:
             class_name = main_class.split(':')[-1]
             self.add_entity(main_class, 'class', class_name)
         
-        # Traiter chaque rÃ©sultat
+        # Traiter chaque résultat
         for idx, binding in enumerate(bindings):
             result_id = f"result_{idx}"
             
-            # Pour chaque variable dans les rÃ©sultats
+            # Pour chaque variable dans les résultats
             for var_name, var_value in binding.items():
                 value_type = var_value.get('type')
                 value = var_value.get('value')
@@ -186,29 +186,29 @@ class RDFGraphBuilder:
                 if not value:
                     continue
                 
-                # CrÃ©er un ID unique pour cette ressource
+                # Créer un ID unique pour cette ressource
                 if value_type == 'uri':
-                    # Convertir l'URI en format prÃ©fixÃ©
+                    # Convertir l'URI en format préfixé
                     resource_id = uri_to_prefixed(value)
-                    if resource_id == value:  # Si pas de prÃ©fixe trouvÃ©
+                    if resource_id == value:  # Si pas de préfixe trouvé
                         resource_id = value.split('/')[-1]
                     
                     # Extraire un label lisible
                     label = resource_id.split(':')[-1].replace('_', ' ')
                     
-                    # DÃ©terminer le type selon la variable
+                    # Déterminer le type selon la variable
                     if var_name in ['album', 'movie', 'film', 'book', 'song']:
                         node_type = 'resource'
                         # Ajouter l'instance
                         self.add_entity(resource_id, node_type, label, value)
                         
-                        # Lier Ã  la classe
+                        # Lier à la classe
                         if main_class:
                             self.add_property(resource_id, 'rdf:type', main_class)
                         
-                        # Lier Ã  l'entitÃ© principale
+                        # Lier à l'entité principale
                         if main_entity:
-                            # DÃ©tecter le type de relation
+                            # Détecter le type de relation
                             if 'artist' in sparql_query.lower():
                                 self.add_property(resource_id, 'dbo:artist', main_entity)
                             elif 'director' in sparql_query.lower():
@@ -219,7 +219,7 @@ class RDFGraphBuilder:
                         self.add_entity(resource_id, 'resource', label, value)
                 
                 elif value_type == 'literal':
-                    # C'est un littÃ©ral (titre, label, etc.)
+                    # C'est un littéral (titre, label, etc.)
                     literal_id = f"literal_{idx}_{var_name}"
                     
                     # Tronquer si trop long
@@ -227,15 +227,15 @@ class RDFGraphBuilder:
                     
                     self.add_entity(literal_id, 'literal', display_value)
                     
-                    # Trouver la ressource associÃ©e et crÃ©er le lien
-                    # La ressource est souvent dans la variable prÃ©cÃ©dente
+                    # Trouver la ressource associée et créer le lien
+                    # La ressource est souvent dans la variable précédente
                     if 'album' in binding:
                         album_uri = binding['album']['value']
                         album_id = uri_to_prefixed(album_uri)
                         if album_id == album_uri:
                             album_id = album_uri.split('/')[-1]
                         
-                        # DÃ©terminer la propriÃ©tÃ© (title, label, name)
+                        # Déterminer la propriété (title, label, name)
                         if var_name in ['title', 'label', 'name']:
                             self.add_property(album_id, f'rdfs:{var_name}', literal_id)
                     elif 'song' in binding:
@@ -258,13 +258,13 @@ class RDFGraphBuilder:
     
     def add_entity(self, entity_id: str, entity_type: str, label: str, uri: Optional[str] = None):
         """
-        Ajoute une entitÃ© au graphe
+        Ajoute une entité au graphe
         
         Args:
-            entity_id: Identifiant unique de l'entitÃ©
-            entity_type: Type de l'entitÃ© (resource, class, literal)
-            label: Label lisible de l'entitÃ©
-            uri: URI complÃ¨te (optionnel)
+            entity_id: Identifiant unique de l'entité
+            entity_type: Type de l'entité (resource, class, literal)
+            label: Label lisible de l'entité
+            uri: URI complète (optionnel)
         """
         self.graph.add_node(entity_id, type=entity_type, label=label)
         self.entities[entity_id] = {
@@ -275,11 +275,11 @@ class RDFGraphBuilder:
     
     def add_property(self, subject: str, predicate: str, obj: str):
         """
-        Ajoute une propriÃ©tÃ© (triple RDF) au graphe
+        Ajoute une propriété (triple RDF) au graphe
         
         Args:
             subject: Sujet du triple
-            predicate: PrÃ©dicat (propriÃ©tÃ©)
+            predicate: Prédicat (propriété)
             obj: Objet du triple
         """
         self.graph.add_edge(subject, obj, property=predicate)
@@ -299,10 +299,10 @@ class RDFGraphBuilder:
         
         plt.figure(figsize=(16, 12))
         
-        # Layout hiÃ©rarchique
+        # Layout hiérarchique
         pos = nx.spring_layout(self.graph, k=3, iterations=50, seed=42)
         
-        # SÃ©parer les nÅ“uds par type pour la coloration
+        # Séparer les nœuds par type pour la coloration
         node_colors = []
         node_sizes = []
         for node in self.graph.nodes():
@@ -316,7 +316,7 @@ class RDFGraphBuilder:
             else:
                 node_sizes.append(1500)
         
-        # Dessiner les nÅ“uds
+        # Dessiner les nœuds
         nx.draw_networkx_nodes(
             self.graph, pos,
             node_color=node_colors,
@@ -326,7 +326,7 @@ class RDFGraphBuilder:
             edgecolors='black'
         )
         
-        # Dessiner les arÃªtes
+        # Dessiner les arêtes
         nx.draw_networkx_edges(
             self.graph, pos,
             edge_color='#333333',
@@ -340,7 +340,7 @@ class RDFGraphBuilder:
             min_target_margin=25
         )
         
-        # Labels des nÅ“uds
+        # Labels des nœuds
         labels = {}
         for node in self.graph.nodes():
             entity = self.entities.get(node, {})
@@ -359,7 +359,7 @@ class RDFGraphBuilder:
             font_color='black'
         )
         
-        # Labels des arÃªtes (propriÃ©tÃ©s)
+        # Labels des arêtes (propriétés)
         edge_labels = {}
         for u, v, data in self.graph.edges(data=True):
             prop = data.get('property', '')
@@ -373,7 +373,7 @@ class RDFGraphBuilder:
             bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7)
         )
         
-        # LÃ©gende
+        # Légende
         legend_elements = [
             plt.Line2D([0], [0], marker='o', color='w', 
                       markerfacecolor=color, markersize=12, label=node_type.capitalize())
@@ -387,13 +387,13 @@ class RDFGraphBuilder:
         
         if filename:
             plt.savefig(filename, dpi=300, bbox_inches='tight', facecolor='white')
-            print(f"âœ“ Graphe sauvegardÃ© dans {filename}")
+            print(f"✓ Graphe sauvegardé dans {filename}")
         else:
             plt.show()
     
     def visualize_interactive(self, title: str = "Interactive RDF Graph"):
         """
-        CrÃ©e une visualisation interactive du graphe RDF avec Plotly
+        Crée une visualisation interactive du graphe RDF avec Plotly
         
         Args:
             title: Titre du graphe
@@ -405,10 +405,10 @@ class RDFGraphBuilder:
             print("Le graphe est vide.")
             return None
         
-        # Layout hiÃ©rarchique
+        # Layout hiérarchique
         pos = nx.spring_layout(self.graph, k=2, iterations=50, seed=42)
         
-        # PrÃ©parer les donnÃ©es pour Plotly
+        # Préparer les données pour Plotly
         edge_x = []
         edge_y = []
         edge_labels_list = []
@@ -426,7 +426,7 @@ class RDFGraphBuilder:
             prop = data.get('property', '')
             edge_labels_list.append(prop.split(':')[-1])
         
-        # CrÃ©er la trace des arÃªtes
+        # Créer la trace des arêtes
         edge_trace = go.Scatter(
             x=edge_x, y=edge_y,
             mode='lines',
@@ -436,7 +436,7 @@ class RDFGraphBuilder:
             name='Relations'
         )
         
-        # PrÃ©parer les donnÃ©es des nÅ“uds par type
+        # Préparer les données des nœuds par type
         nodes_by_type = {
             'resource': {'x': [], 'y': [], 'text': [], 'hover': []},
             'class': {'x': [], 'y': [], 'text': [], 'hover': []},
@@ -471,7 +471,7 @@ class RDFGraphBuilder:
             label = entity.get('label', node)
             node_type = entity.get('type', 'resource')
             
-            # CrÃ©er le texte de hover
+            # Créer le texte de hover
             hover_text = f"<b>{label}</b><br>Type: {node_type}<br>URI: {node}"
             text_label = label.split(':')[-1][:15]
             
@@ -481,13 +481,13 @@ class RDFGraphBuilder:
                 nodes_by_type[node_type]['text'].append(text_label)
                 nodes_by_type[node_type]['hover'].append(hover_text)
         
-        # CrÃ©er la figure
+        # Créer la figure
         fig = go.Figure(data=[edge_trace])
         
-        # Ajouter une trace pour chaque type de nÅ“ud
+        # Ajouter une trace pour chaque type de nœud
         for node_type in ['resource', 'class', 'literal', 'property']:
             node_data = nodes_by_type[node_type]
-            if node_data['x']:  # Si des nÅ“uds de ce type existent
+            if node_data['x']:  # Si des nœuds de ce type existent
                 fig.add_trace(go.Scatter(
                     x=node_data['x'],
                     y=node_data['y'],
@@ -525,11 +525,11 @@ class RDFGraphBuilder:
         return fig
     
     def print_summary(self):
-        """Affiche un rÃ©sumÃ© du graphe RDF"""
+        """Affiche un résumé du graphe RDF"""
         print("\n" + "="*70)
-        print("RÃ‰SUMÃ‰ DU GRAPHE RDF")
+        print("RÉSUMÉ DU GRAPHE RDF")
         print("="*70)
-        print(f"Nombre d'entitÃ©s: {len(self.entities)}")
+        print(f"Nombre d'entités: {len(self.entities)}")
         print(f"Nombre de relations: {len(self.properties)}")
         print()
         
@@ -539,7 +539,7 @@ class RDFGraphBuilder:
             entity_type = entity_data['type']
             type_counts[entity_type] = type_counts.get(entity_type, 0) + 1
         
-        print("EntitÃ©s par type:")
+        print("Entités par type:")
         for entity_type, count in type_counts.items():
             print(f"  {entity_type}: {count}")
         print()
@@ -559,13 +559,13 @@ class RDFGraphBuilder:
             filename: Nom du fichier de sortie (.ttl)
         """
         with open(filename, 'w', encoding='utf-8') as f:
-            # Ã‰crire les prÃ©fixes
+            # Écrire les préfixes
             for prefix, uri in namespaces.items():
                 f.write(f"@prefix {prefix}: <{uri}> .\n")
             f.write("\n")
             
-            # Ã‰crire les triples
+            # Écrire les triples
             for subj, pred, obj in self.properties:
                 f.write(f"{subj} {pred} {obj} .\n")
         
-        print(f"âœ“ Graphe exportÃ© en Turtle dans {filename}")
+        print(f"✓ Graphe exporté en Turtle dans {filename}")
