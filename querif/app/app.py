@@ -11,17 +11,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-st.set_page_config(page_title="querIF", page_icon="💬", layout="centered")
+st.set_page_config(page_title="querIF", page_icon="ðŸ’¬", layout="centered")
 
-st.title("💬 NL 2 SPARQL")
+st.title("ðŸ’¬ NL 2 SPARQL")
 
 # Sidebar controls
-st.sidebar.header("⚙️ Settings")
+st.sidebar.header("âš™ï¸ Settings")
 config_key = st.sidebar.selectbox(
     "LLM Config", options=list(configs.keys()), index=0, help="Select the LLM configuration to use for query generation"
 )
 
-if st.sidebar.button("🗑️ Clear Chat"):
+if st.sidebar.button("ðŸ—‘ï¸ Clear Chat"):
     st.session_state.messages = []
     st.rerun()
 
@@ -38,15 +38,15 @@ for message in st.session_state.messages:
             # Show config and status badges
             config_used = message.get("config", "")
             status = message.get("status", "pending")
-            status_icon = "✅" if status == "success" else "❌" if status == "failed" else "⏳"
+            status_icon = "âœ…" if status == "success" else "âŒ" if status == "failed" else "â³"
             if config_used:
                 st.caption(f"{status_icon} **{config_used}** | Status: {status}")
         elif message.get("is_structured"):
             if "sparql" in message and message["sparql"]:
-                with st.expander("📝 Generated SPARQL Query", expanded=True):
+                with st.expander("ðŸ“ Generated SPARQL Query", expanded=True):
                     st.code(message["sparql"], language="sparql")
             if "results" in message:
-                with st.expander("📊 Query Results", expanded=True):
+                with st.expander("ðŸ“Š Query Results", expanded=True):
                     if message["results"]:
                         st.dataframe(pd.DataFrame(message["results"]), use_container_width=True)
                         col1, col2 = st.columns(2)
@@ -57,7 +57,7 @@ for message in st.session_state.messages:
                                     fig = plot_clusters(df_clustered)
                                     st.plotly_chart(fig, use_container_width=True)
                         with col2:
-                            if st.button("📈 RDF Graph", key=f"graph_prev_{message.get('sparql', '')[:100]}"):
+                            if st.button("ðŸ“ˆ RDF Graph", key=f"graph_prev_{message.get('sparql', '')[:100]}"):
                                 with st.spinner("Generating RDF graph..."):
                                     try:
                                         rdf_builder = RDFGraphBuilder()
@@ -65,23 +65,28 @@ for message in st.session_state.messages:
                                         import time
                                         filename = f"rdf_graph_{int(time.time())}"
                                         rdf_builder.export_to_turtle(filename + ".ttl")
-                                        rdf_builder.visualize(filename + ".png", title="RDF Graph")
                                         
-                                        if os.path.exists(filename + ".png"):
-                                            st.success("✅ RDF Graph generated!")
-                                            img = Image.open(filename + ".png")
-                                            st.image(img, caption="RDF Graph Visualization", use_container_width=True)
+                                        # Create interactive Plotly visualization
+                                        fig = rdf_builder.visualize_interactive(title="RDF Graph")
+                                        if fig:
+                                            st.success("âœ… RDF Graph generated!")
+                                            st.plotly_chart(fig, use_container_width=True, config={
+                                                'responsive': True,
+                                                'displayModeBar': True,
+                                                'displaylogo': False,
+                                                'modeBarButtonsToRemove': ['lasso2d']
+                                            })
                                             
                                             with open(filename + ".ttl", "r") as f:
                                                 turtle_content = f.read()
                                             st.download_button(
-                                                label="⬇️ Download Turtle RDF",
+                                                label="â¬‡ï¸ Download Turtle RDF",
                                                 data=turtle_content,
                                                 file_name=filename + ".ttl",
                                                 mime="text/turtle"
                                             )
                                     except Exception as e:
-                                        st.error(f"❌ Error: {str(e)}")
+                                        st.error(f"âŒ Error: {str(e)}")
                     else:
                         st.warning("No results found.")
             if "error" in message:
@@ -99,14 +104,14 @@ if user_input:
 
     with st.chat_message("user"):
         st.markdown(user_input)
-        st.caption(f"⏳ **{config_key}** | Status: pending")
+        st.caption(f"â³ **{config_key}** | Status: pending")
 
     with st.chat_message("assistant"):
         # Create placeholder for stop button
         stop_placeholder = st.empty()
 
         with st.spinner("Processing your query..."):
-            stop_placeholder.button("⏹️ Stop Execution", key="stop_btn", on_click=lambda: setattr(st.session_state, "stop_execution", True))
+            stop_placeholder.button("â¹ï¸ Stop Execution", key="stop_btn", on_click=lambda: setattr(st.session_state, "stop_execution", True))
 
             if st.session_state.stop_execution:
                 st.session_state.stop_execution = False
@@ -130,7 +135,7 @@ if user_input:
 
         if sparql_query:
             message_data["sparql"] = sparql_query
-            with st.expander("📝 Generated SPARQL Query", expanded=True):
+            with st.expander("ðŸ“ Generated SPARQL Query", expanded=True):
                 st.code(sparql_query, language="sparql")
 
             # Parse and display results
@@ -144,7 +149,7 @@ if user_input:
                         results_data.append(row)
 
                     message_data["results"] = results_data
-                    with st.expander("📊 Query Results", expanded=True):
+                    with st.expander("ðŸ“Š Query Results", expanded=True):
                         st.dataframe(pd.DataFrame(results_data), use_container_width=True)
                         
                         col1, col2 = st.columns(2)
@@ -155,7 +160,7 @@ if user_input:
                                 st.plotly_chart(fig, use_container_width=True)
                         
                         with col2:
-                            if st.button("📈 RDF Graph", key=f"graph_new_{sparql_query[:50]}"):
+                            if st.button("ðŸ“ˆ RDF Graph", key=f"graph_new_{sparql_query[:50]}"):
                                 with st.spinner("Generating RDF graph..."):
                                     try:
                                         rdf_builder = RDFGraphBuilder()
@@ -165,30 +170,35 @@ if user_input:
                                         filename = f"rdf_graph_{int(time.time())}"
                                         
                                         rdf_builder.export_to_turtle(filename + ".ttl")
-                                        rdf_builder.visualize(filename + ".png", title="RDF Graph")
                                         
-                                        if os.path.exists(filename + ".png"):
-                                            st.success("✅ RDF Graph generated successfully!")
-                                            img = Image.open(filename + ".png")
-                                            st.image(img, caption="RDF Graph Visualization", use_container_width=True)
+                                        # Create interactive Plotly visualization
+                                        fig = rdf_builder.visualize_interactive(title="RDF Graph")
+                                        if fig:
+                                            st.success("âœ… RDF Graph generated successfully!")
+                                            st.plotly_chart(fig, use_container_width=True, config={
+                                                'responsive': True,
+                                                'displayModeBar': True,
+                                                'displaylogo': False,
+                                                'modeBarButtonsToRemove': ['lasso2d']
+                                            })
                                             
                                             with open(filename + ".ttl", "r") as f:
                                                 turtle_content = f.read()
                                             st.download_button(
-                                                label="⬇️ Download Turtle RDF",
+                                                label="â¬‡ï¸ Download Turtle RDF",
                                                 data=turtle_content,
                                                 file_name=filename + ".ttl",
                                                 mime="text/turtle"
                                             )
                                     except Exception as e:
-                                        st.error(f"❌ Error generating RDF graph: {str(e)}")
+                                        st.error(f"âŒ Error generating RDF graph: {str(e)}")
                 else:
                     message_data["results"] = []
-                    with st.expander("📊 Query Results", expanded=True):
+                    with st.expander("ðŸ“Š Query Results", expanded=True):
                         st.warning("No results found.")
             else:
                 message_data["results"] = []
-                with st.expander("📊 Query Results", expanded=True):
+                with st.expander("ðŸ“Š Query Results", expanded=True):
                     st.warning("No results returned from query execution.")
             
             # Update user message status to success
